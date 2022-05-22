@@ -1,0 +1,6 @@
+
+
+fn doit()
+{
+    println!("hi")
+}

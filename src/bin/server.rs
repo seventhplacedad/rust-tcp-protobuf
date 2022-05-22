@@ -1,5 +1,4 @@
 use core::panic;
-use std::os::linux::raw;
 use log::{debug, error, info, trace, warn};
 use simplelog::*;
 use std::fs::File;
@@ -27,19 +26,19 @@ enum PDUReadErr {
     DataIoError(std::io::Error),
 }
 
-fn pdu(stream: &mut TcpStream) -> Result<PDUReadOk, PDUReadErr> {
-    let mut buf = [0u8; 3];
+use rust_tcp_protobuf::protos::my_messages;
+use protobuf::{parse_from_bytes,Message};
+use rust_tcp_protobuf::buster;
+
+fn maybe_get_pdu(stream: &mut TcpStream) -> Result<PDUReadOk, PDUReadErr> {
+    let mut buf = [0u8; 5];
     const MAGIC: u8 = 97u8;
     const MAX_DATA_SIZE: usize = 16000;
 
     match stream.read_exact(&mut buf) {
         Ok(()) => {
-            let ascii_bytes = &buf[1..3];
-            let my_hex_str : String = String::from_utf8(ascii_bytes.to_vec()).unwrap();
-            assert!(my_hex_str.len() == 2);
-            let raw_bytes : Vec<u8> = hex::decode(my_hex_str).unwrap();
-            assert!(raw_bytes.len() == 1);
-            let byte_count = u8::from_be_bytes(raw_bytes.try_into().unwrap()) as usize;
+            let num_bytes = &buf[1..5];
+            let byte_count = u32::from_be_bytes(num_bytes.try_into().unwrap()) as usize;
             match (buf[0], byte_count) {
                 (MAGIC, count) if count < MAX_DATA_SIZE => {
                     let mut databuf = vec![0;byte_count];
@@ -108,7 +107,7 @@ fn main() {
         let mut to_remove_indecies: Vec<usize> = Vec::new();
         for (i, stream) in streams.iter_mut().enumerate() {
             let fd = stream.as_raw_fd();
-            match pdu(stream) {
+            match maybe_get_pdu(stream) {
                 Err(err) => {
                     match err {
                         PDUReadErr::GotEOF => warn!(
