@@ -5,7 +5,6 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::net::TcpListener;
 use std::net::TcpStream;
-use std::os::unix::prelude::AsRawFd;
 
 #[derive(Debug)]
 enum InvalidHeaderReason {
@@ -86,7 +85,7 @@ fn main() {
     ])
     .unwrap();
 
-    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+    let listener = TcpListener::bind("0.0.0.0:7878").unwrap();
     listener.set_nonblocking(true).unwrap();
     let mut streams: Vec<TcpStream> = Vec::new();
 
@@ -95,8 +94,7 @@ fn main() {
         match listener.accept() {
             Ok((stream, _)) => {
                 stream.set_nonblocking(true).unwrap();
-                let fdnum: i32 = stream.as_raw_fd();
-                info!("New Client fd={} Connected, added to stream list. ", fdnum);
+                info!("New Client Connected, added to stream list. ");
 
                 streams.push(stream);
             }
@@ -106,17 +104,15 @@ fn main() {
 
         let mut to_remove_indecies: Vec<usize> = Vec::new();
         for (i, stream) in streams.iter_mut().enumerate() {
-            let fd = stream.as_raw_fd();
             match maybe_get_pdu(stream) {
                 Err(err) => {
                     match err {
                         PDUReadErr::GotEOF => warn!(
-                            "Client fd={} gave an EOF when reading possible PDU. Removing.",
-                            fd
+                            "Client gave an EOF when reading possible PDU. Removing.",
                         ),
                         other_error => error!(
-                            "Reading PDU from client fd={} gave unexpected error. {:?}",
-                            fd, other_error
+                            "Reading PDU from client gave unexpected error. {:?}",
+                            other_error
                         ),
                     }
                     to_remove_indecies.push(i);
@@ -131,9 +127,8 @@ fn main() {
 
         for i in reversed_remove_indecies {
             let stream = streams.remove(i);
-            let fd = stream.as_raw_fd();
             stream.shutdown(std::net::Shutdown::Both).unwrap();
-            info!("Shutdown stream fd={}", fd);
+            info!("Shutdown stream ");
         }
     }
 }

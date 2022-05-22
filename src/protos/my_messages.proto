@@ -1,10 +1,58 @@
 syntax = "proto2";
 
+message UnicastAddress
+{
+  required bytes mac_addr = 1;
+  optional bytes sub_addr = 2;
+}
+
 message TopLevelMessage {
   optional HelloMessage hello = 1;
+  optional ManagementMessage management = 2;
+  optional bytes payload = 3;
+  optional bool broadcast = 4;
+  optional UnicastAddress unicast = 5;
+  optional int32 multicast_role = 6;
 }
 
 message HelloMessage {
   optional fixed32 my_number = 1;
 }
 
+message ManagementMessage {
+  required fixed32 magic = 1;
+  optional AssignServerIDMessgae id = 2;
+  optional MulticastRoleMessage multicast_role = 3;
+  optional OtherClientStateMessage client_state = 4;
+}
+
+enum ClientState
+{
+  ALREADY_HERE = 1;
+  JOINED=2;
+  LEFT=3;
+}
+
+message OtherClientStateMessage
+{
+  required fixed32 magic = 1;
+  required UnicastAddress addr = 2;
+  required ClientState state = 3;
+}
+
+message AssignServerIDMessgae {
+  required fixed32 magic = 1;
+  required UnicastAddress addr = 2;
+}
+
+enum AssignOrUnassign
+{
+  ASSIGN = 1;
+  UNASSIGN =2;
+}
+
+message MulticastRoleMessage {
+  required fixed32 magic = 1;
+  required int32 role = 2;
+  required AssignOrUnassign assign = 3;
+}
