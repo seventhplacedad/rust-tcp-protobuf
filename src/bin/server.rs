@@ -2,72 +2,26 @@ use core::panic;
 use log::{debug, error, info, trace, warn};
 use simplelog::*;
 use std::fs::File;
-use std::io::prelude::*;
+use std::net::SocketAddr;
 use std::net::TcpListener;
+use std::io::prelude::*;
 use std::net::TcpStream;
+use std::vec;
 
-#[derive(Debug)]
-enum InvalidHeaderReason {
-    BadMagic(u8),
-    TooLongPDU(usize),
-}
-enum PDUReadOk {
-    ReadPDU(Vec<u8>),
-    NoPDU,
-}
+use rust_tcp_protobuf::libserver::*;
 
-#[derive(Debug)]
-enum PDUReadErr {
-    InvalidHeaderForPDU(InvalidHeaderReason),
-    GotEOF,
-    DataReadWouldBlocked,
-    HeaderIoError(std::io::Error),
-    DataIoError(std::io::Error),
-}
-
-use rust_tcp_protobuf::protos::my_messages;
-use protobuf::{parse_from_bytes,Message};
-use rust_tcp_protobuf::buster;
-
-fn maybe_get_pdu(stream: &mut TcpStream) -> Result<PDUReadOk, PDUReadErr> {
-    let mut buf = [0u8; 5];
-    const MAGIC: u8 = 97u8;
-    const MAX_DATA_SIZE: usize = 16000;
-
-    match stream.read_exact(&mut buf) {
-        Ok(()) => {
-            let num_bytes = &buf[1..5];
-            let byte_count = u32::from_be_bytes(num_bytes.try_into().unwrap()) as usize;
-            match (buf[0], byte_count) {
-                (MAGIC, count) if count < MAX_DATA_SIZE => {
-                    let mut databuf = vec![0;byte_count];
-                    match stream.read_exact(&mut databuf) {
-                        Ok(_) => Ok(PDUReadOk::ReadPDU(databuf)),
-                        Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                            Err(PDUReadErr::DataReadWouldBlocked)
-                        }
-                        Err(ref error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                            Err(PDUReadErr::GotEOF)
-                        }
-                        Err(err) => Err(PDUReadErr::DataIoError(err)),
-                    }
-                }
-                (MAGIC, large_data_count) => Err(PDUReadErr::InvalidHeaderForPDU(
-                    InvalidHeaderReason::TooLongPDU(large_data_count),
-                )),
-                (bad_magic, _) => Err(PDUReadErr::InvalidHeaderForPDU(
-                    InvalidHeaderReason::BadMagic(bad_magic),
-                )),
-            }
-        }
-
-        Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(PDUReadOk::NoPDU),
-        Err(ref error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-            Err(PDUReadErr::GotEOF)
-        }
-        Err(err) => Err(PDUReadErr::HeaderIoError(err)),
-    }
-}
+// Err(err) => {
+//     match err {
+//         pdu::PDUReadErr::GotEOF => {
+//             warn!("Client gave an EOF when reading possible PDU. Removing.",)
+//         }
+//         other_error => error!(
+//             "Reading PDU from client gave unexpected error. {:?}",
+//             other_error
+//         ),
+//     }
+//     to_remove_indecies.push(i);
+// }
 
 fn main() {
     CombinedLogger::init(vec![
@@ -87,48 +41,46 @@ fn main() {
 
     let listener = TcpListener::bind("0.0.0.0:7878").unwrap();
     listener.set_nonblocking(true).unwrap();
-    let mut streams: Vec<TcpStream> = Vec::new();
+    let mut clients: Vec<Client> = Vec::new();
 
     info!("Server is initialized.");
     loop {
         match listener.accept() {
-            Ok((stream, _)) => {
+            Ok((stream, addr_info)) => {
                 stream.set_nonblocking(true).unwrap();
-                info!("New Client Connected, added to stream list. ");
+                info!(
+                    "New Client Connected, added to stream list. {:?} ",
+                    addr_info
+                );
 
-                streams.push(stream);
+                clients.push(Client::new(stream, addr_info));
             }
             Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock => (),
             Err(_) => panic!("Unexpected Error"),
         }
 
-        let mut to_remove_indecies: Vec<usize> = Vec::new();
-        for (i, stream) in streams.iter_mut().enumerate() {
-            match maybe_get_pdu(stream) {
-                Err(err) => {
-                    match err {
-                        PDUReadErr::GotEOF => warn!(
-                            "Client gave an EOF when reading possible PDU. Removing.",
-                        ),
-                        other_error => error!(
-                            "Reading PDU from client gave unexpected error. {:?}",
-                            other_error
-                        ),
-                    }
-                    to_remove_indecies.push(i);
+        let result: Vec<ServerBlobResult<TryClientToOutblobsErr>> = clients
+            .iter_mut()
+            .map(client_maybe_pdu_to_outblobs)
+            .collect();
+
+        for (i, client_result) in result.into_iter().enumerate().rev() {
+            match client_result {
+                Err(error) => {
+                    warn!(
+                        "Going to remove client for this reason: {:?}. Client={:?}",
+                        error, clients[i].info
+                    );
+                    let client = clients.remove(i);
+                    client
+                        .stream
+                        .shutdown(std::net::Shutdown::Both)
+                        .expect("Failed to shutdown!");
                 }
-                Ok(PDUReadOk::ReadPDU(woof)) => info!("I read a PDU mom {:?}", woof),
-                Ok(PDUReadOk::NoPDU) => (),
+                Ok(maybe_blobs) => {
+                    info!("Would have send these blobs {:?}", maybe_blobs)
+                }
             }
-        }
-
-        to_remove_indecies.sort();
-        let reversed_remove_indecies: Vec<usize> = to_remove_indecies.into_iter().rev().collect();
-
-        for i in reversed_remove_indecies {
-            let stream = streams.remove(i);
-            stream.shutdown(std::net::Shutdown::Both).unwrap();
-            info!("Shutdown stream ");
         }
     }
 }

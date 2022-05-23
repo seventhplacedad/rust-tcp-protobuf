@@ -2,17 +2,19 @@ syntax = "proto2";
 
 message UnicastAddress
 {
-  required bytes mac_addr = 1;
+  optional bytes mac_addr = 1;
   optional bytes sub_addr = 2;
+  optional string nickname = 3;
 }
 
 message TopLevelMessage {
-  optional HelloMessage hello = 1;
-  optional ManagementMessage management = 2;
-  optional bytes payload = 3;
-  optional bool broadcast = 4;
-  optional UnicastAddress unicast = 5;
-  optional int32 multicast_role = 6;
+  optional fixed32 magic = 1;
+  optional HelloMessage hello = 2;
+  optional ManagementMessage management = 3;
+  optional bytes payload = 4;
+  optional bool broadcast = 5;
+  optional UnicastAddress unicast = 6;
+  optional fixed64 multicast_role = 7;
 }
 
 message HelloMessage {
@@ -20,10 +22,10 @@ message HelloMessage {
 }
 
 message ManagementMessage {
-  required fixed32 magic = 1;
-  optional AssignServerIDMessgae id = 2;
-  optional MulticastRoleMessage multicast_role = 3;
-  optional OtherClientStateMessage client_state = 4;
+  optional fixed32 magic = 1;
+  optional UnicastAddress assign_address = 2;
+  optional MulticastRoleMessage set_multicast_role = 3;
+  optional OtherClientStateMessage info_other_client_state = 4;
 }
 
 enum ClientState
@@ -35,14 +37,8 @@ enum ClientState
 
 message OtherClientStateMessage
 {
-  required fixed32 magic = 1;
-  required UnicastAddress addr = 2;
-  required ClientState state = 3;
-}
-
-message AssignServerIDMessgae {
-  required fixed32 magic = 1;
-  required UnicastAddress addr = 2;
+  optional UnicastAddress addr = 2;
+  optional ClientState state = 3;
 }
 
 enum AssignOrUnassign
@@ -52,7 +48,6 @@ enum AssignOrUnassign
 }
 
 message MulticastRoleMessage {
-  required fixed32 magic = 1;
-  required int32 role = 2;
-  required AssignOrUnassign assign = 3;
+  optional fixed64 role = 2;
+  optional AssignOrUnassign assign = 3;
 }
