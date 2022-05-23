@@ -2,9 +2,9 @@ use core::panic;
 use log::{debug, error, info, trace, warn};
 use simplelog::*;
 use std::fs::File;
+use std::io::prelude::*;
 use std::net::SocketAddr;
 use std::net::TcpListener;
-use std::io::prelude::*;
 use std::net::TcpStream;
 use std::vec;
 
@@ -53,7 +53,7 @@ fn main() {
                     addr_info
                 );
 
-                clients.push(Client::new(stream, addr_info));
+                clients.push(Client::new(stream, Some(addr_info)));
             }
             Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock => (),
             Err(_) => panic!("Unexpected Error"),

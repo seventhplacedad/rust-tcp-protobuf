@@ -23,7 +23,7 @@ pub struct OutgoingBlob {
 #[derive(Debug)]
 pub struct ClientInfo {
     pub self_assigned_addr: Option<UnicastAddress>,
-    pub socket_address: std::net::SocketAddr,
+    pub socket_address: Option<std::net::SocketAddr>,
     pub current_roles: tinyset::Set64<u64>,
 }
 pub struct Client {
@@ -32,7 +32,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(stream: TcpStream, socket_address: std::net::SocketAddr) -> Client {
+    pub fn new(stream: TcpStream, socket_address: Option<std::net::SocketAddr>) -> Client {
         Client {
             stream,
             info: ClientInfo {
@@ -44,7 +44,9 @@ impl Client {
     }
 }
 
-pub fn client_maybe_pdu_to_outblobs(client: &mut Client) -> ServerBlobResult<TryClientToOutblobsErr> {
+pub fn client_maybe_pdu_to_outblobs(
+    client: &mut Client,
+) -> ServerBlobResult<TryClientToOutblobsErr> {
     use pdu::maybe_get_pdu;
     use pdu::PDUReadOk::*;
     use TryClientToOutblobsErr::*;
@@ -75,11 +77,10 @@ pub enum TryClientToOutblobsErr {
 const TOP_LEVEL_MAGIC: u32 = 21093159;
 const MANAGEMENT_MAGIC: u32 = 4258764624;
 
-
 fn use_management_message(
     sender_info: &mut ClientInfo,
     msg: &ManagementMessage,
-) -> ServerBlobResult<ServerUnpackBlobError>{
+) -> ServerBlobResult<ServerUnpackBlobError> {
     use ServerUnpackBlobError::*;
     if !msg.has_magic() || msg.get_magic() != MANAGEMENT_MAGIC {
         Err(InvalidMagic)
@@ -127,7 +128,10 @@ fn use_management_message(
     }
 }
 
-fn use_blob(sender_info: &mut ClientInfo, blob: Vec<u8>) -> ServerBlobResult<ServerUnpackBlobError>{
+fn use_blob(
+    sender_info: &mut ClientInfo,
+    blob: Vec<u8>,
+) -> ServerBlobResult<ServerUnpackBlobError> {
     use ServerUnpackBlobError::*;
     let tlm = TopLevelMessage::parse_from_bytes(&blob).map_err(|e| BadProtoBlob(e))?;
 
@@ -157,5 +161,34 @@ fn use_blob(sender_info: &mut ClientInfo, blob: Vec<u8>) -> ServerBlobResult<Ser
         }]))
     } else {
         unimplemented!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Note this useful idiom: importing names from outer (for mod tests) scope.
+    use super::*;
+
+    #[test]
+    fn test_one() {
+        let mut sender_info = ClientInfo {
+            current_roles: tinyset::Set64::new(),
+            self_assigned_addr: None,
+            socket_address: None,
+        };
+
+        let msg = {
+            let mut msg = ManagementMessage::new();
+            msg.set_magic(MANAGEMENT_MAGIC);
+            msg.set_set_multicast_role({
+                let mut msg = MulticastRoleMessage::new();
+                msg.set_assign(AssignOrUnassign::ASSIGN);
+                msg.set_role(12);
+                msg
+            });
+            msg
+        };
+
+        use_management_message(&mut sender_info, &msg).unwrap();
     }
 }
